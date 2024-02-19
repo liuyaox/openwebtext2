@@ -3,6 +3,7 @@ import time
 from datetime import timedelta
 from tqdm import tqdm
 
+
 class LogFormatter():
 
     def __init__(self):
@@ -22,6 +23,7 @@ class LogFormatter():
 
     def reset_time(self):
         self.start_time = time.time()
+
 
 def setup_logger(filepath=None, to_console=True, formatter=LogFormatter()):
 
@@ -46,6 +48,7 @@ def setup_logger(filepath=None, to_console=True, formatter=LogFormatter()):
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
+
 class ChildProcessHandler(logging.StreamHandler):
     def __init__(self, message_queue):
         self.message_queue = message_queue
@@ -53,6 +56,7 @@ class ChildProcessHandler(logging.StreamHandler):
 
     def emit(self, record):
         self.message_queue.put(record)
+
 
 def setup_logger_child_process(message_queue):
     # create logger
@@ -67,6 +71,7 @@ def setup_logger_child_process(message_queue):
     child_process_handler.setLevel(logging.INFO)
     logger.addHandler(child_process_handler)
 
+
 class TqdmHandler(logging.StreamHandler):
     def __init__(self):
         logging.StreamHandler.__init__(self)
@@ -74,6 +79,7 @@ class TqdmHandler(logging.StreamHandler):
     def emit(self, record):
         msg = self.format(record)
         tqdm.write(msg)
+
 
 def setup_logger_tqdm(filepath=None, formatter=LogFormatter()):
 

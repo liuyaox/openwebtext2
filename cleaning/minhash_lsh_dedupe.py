@@ -33,10 +33,9 @@ Importantly, once you run the script you must keep using the same lsh object
 if you want the same basenames for the created Cassandra tables.
 
 We are running into issues with loading this MinHashLSH object in multiple processes
-so did our run with just a single process. The first run will freeze when trying
+so did our run with [[just a single process]]. The first run will freeze when trying
 to unpickle the MinHashLSH object in the worker process. On running a second time it 
 will work.
-
 We save file and document level checkpoints after each query to allow for easy resuming.
 Each batch file will have a corresponding "*_duplicates.txt" when done.
 
@@ -48,7 +47,6 @@ Arguments
 --process_count (-procs)
     Number of processes in the pool. Defaults to 1.
 """
-
 import os
 import glob
 import argparse
@@ -65,9 +63,9 @@ import logging
 from utils.logger import setup_logger_tqdm
 logger = logging.getLogger(__name__)
 
+
 def get_minhash_lsh_cassandra():
-    lsh = MinHashLSH(
-        threshold=0.5, num_perm=10, storage_config={
+    lsh = MinHashLSH(threshold=0.8, num_perm=1000, storage_config={
             'type': 'cassandra',
             'cassandra': {
                 'seeds': ['127.0.0.1'],
@@ -83,29 +81,30 @@ def get_minhash_lsh_cassandra():
     )
     return lsh
 
+
 def minhash_lsh_dedupe_cassandra(batch_minhashes_pickle_path, lsh_pickle_path, tqdm_func, global_tqdm):
     # [(file_id, [doc0_minhash, doc1_minhash, ...]), ....]
-    batch_minhashes = timed_pickle_load(batch_minhashes_pickle_path, "batch minhashes")
+    batch_minhashes = timed_pickle_load(batch_minhashes_pickle_path, f"batch minhashes {batch_minhashes_pickle_path}")
 
-    # For some reason this will freeze when loading on the first run. 
-    lsh = timed_pickle_load(lsh_pickle_path, "lsh")    
+    # For some reason this will freeze when loading on the first run. YAO: 第1次run的确卡住了！第2次run可以跑起来了
+    lsh = timed_pickle_load(lsh_pickle_path, "lsh in worker")
 
-    checkpoint_file = batch_minhashes_pickle_path.replace(".pkl","_ckpt.pkl")
+    checkpoint_file = batch_minhashes_pickle_path.replace(".pkl", "_ckpt.pkl")
     if os.path.exists(checkpoint_file):
-        ckpt_file_id, ckpt_document_id = pickle.load(open(checkpoint_file,"rb"))
+        ckpt_file_id, ckpt_document_id = pickle.load(open(checkpoint_file, "rb"))
     else:
         ckpt_file_id = -1
         ckpt_document_id = -1
 
     logger.info("Detecting duplicates")
     timer = Timer().start()
-    duplicate_file_path = batch_minhashes_pickle_path.replace(".pkl", "_duplicates.txt")    
+    duplicate_file_path = batch_minhashes_pickle_path.replace(".pkl", "_duplicates.txt")
     with open(duplicate_file_path, "a") as fh:
         for file_id, documents in batch_minhashes:
             if file_id <= ckpt_file_id:
                 global_tqdm.update(len(documents))
                 continue
-            for document_id, minhash in enumerate(documents):            
+            for document_id, minhash in enumerate(documents):   # YAO: document_id是某个file内的局部id
                 if document_id <= ckpt_document_id:
                     global_tqdm.update(ckpt_document_id + 1)
                     ckpt_document_id = -1
@@ -128,14 +127,13 @@ def minhash_lsh_dedupe_cassandra(batch_minhashes_pickle_path, lsh_pickle_path, t
                         lsh.insert(json.dumps((file_id, document_id)), minhash)
 
                 global_tqdm.update()
-                pickle.dump((file_id, document_id), open(checkpoint_file,"wb"))
+                pickle.dump((file_id, document_id), open(checkpoint_file, "wb"))
 
-    logger.info(timer.stop_string())
-
+    logger.info(f'{batch_minhashes_pickle_path} duplicates detected. {timer.stop_string()}')
     return True
 
-def main(process_count, batch_directory):
 
+def main(process_count, batch_directory):
     # Ensure LSH object containing cassandra connection info exists
     lsh_pickle_path = os.path.join(batch_directory, "lsh.pkl")
     if not os.path.exists(lsh_pickle_path):
@@ -144,32 +142,28 @@ def main(process_count, batch_directory):
         timed_pickle_dump(lsh, lsh_pickle_path, "lsh")
 
     files = glob.glob(os.path.join(batch_directory, "batch*.pkl"), recursive=True)
-
-    pool = TqdmMultiProcessPool()
     tasks = []
-
-    document_count_path = os.path.join(batch_directory, "document_count.pkl")
-    total_documents = pickle.load(open(document_count_path,"rb"))
-
     for batch_file in files:
-        arguments = (batch_file, lsh_pickle_path)
-        task = (minhash_lsh_dedupe_cassandra, arguments)
+        task = (minhash_lsh_dedupe_cassandra, (batch_file, lsh_pickle_path))
         tasks.append(task)
 
-    on_done = lambda _ : logger.info("done")
-    on_error = lambda _ : logger.info("error")
+    pool = TqdmMultiProcessPool(process_count)
+    total_documents = pickle.load(open(os.path.join(batch_directory, "document_count.pkl"), "rb"))
+    on_done = lambda _: logger.info("done")
+    on_error = lambda _: logger.info("error")
     with tqdm.tqdm(total=total_documents, dynamic_ncols=True) as progress:
-        result = pool.map(process_count, progress, tasks, on_error, on_done)
+        result = pool.map(progress, tasks, on_error, on_done)
         logger.info(result)
 
-parser = argparse.ArgumentParser(description='Minhash LSH dedupe with cassandra backend.')
-parser.add_argument("-dir", "--batch_directory", default="")
-parser.add_argument("-procs", "--process_count", type=int, default=1)
+
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Minhash LSH dedupe with cassandra backend.')
+    parser.add_argument("-p", "--process_count", type=int, default=1)
+    parser.add_argument("-d", "--batch_directory", default="")
+
     logfile_path = "minhash_lsh_dedupe.log"
     setup_logger_tqdm(logfile_path)
 
     args = parser.parse_args()
-
     main(args.process_count, args.batch_directory)

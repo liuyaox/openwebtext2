@@ -6,6 +6,7 @@ import pickle
 import logging
 logger = logging.getLogger(__name__)
 
+
 def timed_pickle_load(file_name, pickle_description):
     logger.info(f"Unpickling {pickle_description}...")
     timer = Timer().start()
@@ -13,14 +14,17 @@ def timed_pickle_load(file_name, pickle_description):
     logger.info(timer.stop_string())
     return unpickled
 
+
 def timed_pickle_dump(the_object, file_name, pickle_description):
     logger.info(f"Pickling {pickle_description}...")
     timer = Timer().start()
     pickle.dump(the_object, open(file_name, "wb"))
     logger.info(timer.stop_string())
 
+
 class TimerError(Exception):
     """A custom exception used to report errors in use of Timer class"""
+
 
 class Timer:
     def __init__(self):
@@ -48,6 +52,7 @@ class Timer:
         elapsed = self.stop()
         return f"Took {elapsed:0.2f}s"
 
+
 def linecount(filename):
     f = open(filename, 'rb')
     lines = 0
@@ -60,6 +65,7 @@ def linecount(filename):
         buf = read_f(buf_size)
 
     return lines
+
 
 def chunker(l, n, s=0):
     """Yield successive n-sized chunks from l, skipping the first s chunks."""
@@ -80,9 +86,26 @@ def chunker(l, n, s=0):
         for i in range(s, len(l), n):
             yield l[i : i + n]
 
+
 def mkdir(fp):
     try:
         os.makedirs(fp)
     except FileExistsError:
         pass
     return fp
+
+
+def setup_logger(log_file):
+    format = '%(asctime)s %(levelname)s: %(message)s'
+    logging.basicConfig(
+        level=logging.INFO,
+        format=format,
+        filename=log_file,
+        filemode='a'
+    )
+    # 将日志也输出到控制台（可选）
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter(format)
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
